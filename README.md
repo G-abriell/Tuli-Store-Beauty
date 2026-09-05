@@ -42,7 +42,6 @@ O projeto ja inclui `netlify.toml` com `@netlify/plugin-nextjs` e security heade
 - Vitrine publica com filtro por categoria, busca, ordenacao por preco e bloqueio de item esgotado.
 - Sacola com quantidade limitada ao estoque.
 - Checkout com nome, e-mail, WhatsApp, entrega e pagamento filtrado.
-- Regra de cupom: a cada 5 pedidos concluidos com valor minimo de R$ 20, o cliente recebe cupom de 10% limitado a R$ 5.
 - Criacao de pedido no Supabase com status inicial.
 - E-mail automatico ao criar pedido e e-mails manuais quando o ADM altera status.
 - Painel ADM com login por Supabase Auth, CRUD de produtos, upload validado para Storage, listagem de pedidos e edicao de banners.
