@@ -553,7 +553,7 @@ export default function Storefront() {
               const cardStyle = { "--card-delay": `${(cardIndex % 6) * 0.12}s`, "--float-delay": `${(cardIndex % 5) * 0.6}s` } as React.CSSProperties;
               return (<article className="productCard" key={product.id} data-reveal style={cardStyle} onClick={() => openQuickView(product)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openQuickView(product); } }}>
                 <div className="productImage">
-                  <img src={hp} alt={product.nome} />
+                  <img src={hp} alt={product.nome} loading="lazy" decoding="async" width={300} height={300} />
                   {discP > 0 ? <span className="productBadge">-{discP}%</span> : null}
                   {soldOut ? <span className="soldOut">ESGOTADO</span> : null}
                   {isK && product.fotos.length > 1 ? (<button type="button" className="kitTourBadge" onClick={(e) => { e.stopPropagation(); openKitTour(product); }} aria-label="Ver tour do kit"><Gift size={14} />Ver kit</button>) : null}
