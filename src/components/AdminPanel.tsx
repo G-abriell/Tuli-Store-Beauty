@@ -17,6 +17,8 @@ import {
   Upload
 } from "lucide-react";
 import { CATEGORIES, ORDER_STATUSES } from "@/lib/constants";
+import { useCookieConsent } from "@/lib/use-cookie-consent";
+import { compressImage } from "@/lib/compressImage";
 import { formatMoney } from "@/lib/currency";
 import { DEFAULT_SITE_CONFIG } from "@/lib/demo-data";
 import type { Category, OrderStatus, Product, PublicOrder, SiteConfig } from "@/types/store";
@@ -202,14 +204,19 @@ export default function AdminPanel() {
     setMessage("");
 
     try {
-      const base64 = await fileToDataUrl(file);
+      // Log original size
+      console.log('Original file size (KB):', file.size / 1024);
+      // Compress the image before upload
+      const compressed = await compressImage(file);
+      console.log('Compressed file size (KB):', compressed.size / 1024);
+      const base64 = await fileToDataUrl(compressed);
       const response = await fetch("/api/admin/products/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          size: file.size,
+          fileName: compressed.name,
+          contentType: compressed.type,
+          size: compressed.size,
           base64
         })
       });
