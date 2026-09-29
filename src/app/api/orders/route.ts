@@ -7,7 +7,7 @@ import { PUBLIC_PRODUCT_SELECT, toProduct } from "@/lib/products";
 import { checkRateLimit, requestIp } from "@/lib/rate-limit";
 import { checkoutSchema } from "@/lib/schemas";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { buildWhatsAppUrl, buildWhatsAppUrls } from "@/lib/whatsapp";
 import type { OrderLine, Product, PublicOrder } from "@/types/store";
 
 export const runtime = "nodejs";
@@ -77,9 +77,11 @@ function demoOrder(parsed: ReturnType<typeof checkoutSchema.parse>) {
     observacoes: parsed.observacoes
   };
 
+  const urls = buildWhatsAppUrls(order);
   return {
     order,
-    whatsappUrl: buildWhatsAppUrl(order),
+    whatsappUrl: urls.webUrl,
+    whatsappAppUrl: urls.appUrl,
     emailSent: false,
     demo: true
   };
@@ -189,9 +191,11 @@ export async function POST(request: Request) {
 
   const emailResult = await sendOrderStatusEmail(order, INITIAL_ORDER_STATUS);
 
+  const urls = buildWhatsAppUrls(order);
   return jsonResponse({
     order,
-    whatsappUrl: buildWhatsAppUrl(order),
+    whatsappUrl: urls.webUrl,
+    whatsappAppUrl: urls.appUrl,
     emailSent: emailResult.sent
   });
 }

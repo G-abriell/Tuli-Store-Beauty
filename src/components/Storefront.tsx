@@ -4,6 +4,7 @@ import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
+  ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -102,8 +103,11 @@ export default function Storefront() {
   const [observations, setObservations] = useState("");
   const [checkoutMessage, setCheckoutMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submittedOrderUrl, setSubmittedOrderUrl] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [addedModal, setAddedModal] = useState<{ product: Product; quantity: number } | null>(null);
+  const addedModalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [magnifier, setMagnifier] = useState<MagnifierState>(null);
   const [kitTour, setKitTour] = useState<KitTourState>(null);
   const [quickView, setQuickView] = useState<QuickViewState>(null);
@@ -209,15 +213,22 @@ export default function Storefront() {
     return () => obs.disconnect();
   }, [products, siteConfig, activeBannerIndex, category, query, sortMode, loading]);
 
-  useEffect(() => { const t = toastTimersRef.current; return () => { t.forEach((v) => clearTimeout(v)); t.clear(); }; }, []);
+  useEffect(() => {
+    const t = toastTimersRef.current;
+    return () => {
+      t.forEach((v) => clearTimeout(v));
+      t.clear();
+      if (addedModalTimerRef.current) clearTimeout(addedModalTimerRef.current);
+    };
+  }, []);
 
   // Um único efeito controla o overflow do body — dois efeitos separados
   // sobrescreviam um ao outro na limpeza quando cartOpen e quickView
   // alternavam em sequência rápida.
   useEffect(() => {
-    document.body.style.overflow = (cartOpen || !!quickView) ? "hidden" : "";
+    document.body.style.overflow = (cartOpen || !!quickView || !!addedModal) ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
-  }, [cartOpen, quickView]);
+  }, [cartOpen, quickView, addedModal]);
 
   useEffect(() => {
     if (!quickView) return;
@@ -229,6 +240,18 @@ export default function Storefront() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [quickView]);
+
+  useEffect(() => {
+    if (!addedModal) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (addedModalTimerRef.current) clearTimeout(addedModalTimerRef.current);
+        setAddedModal(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [addedModal]);
 
   useEffect(() => {
     if (!categoryMenuOpen) return;
@@ -316,8 +339,15 @@ export default function Storefront() {
   function handleQuickViewOverlayClick(e: React.MouseEvent<HTMLDivElement>) { if (e.target === e.currentTarget) closeQuickView(); }
   function handleQuickViewShare(p: Product) { const url = typeof window !== "undefined" ? `${window.location.origin}/?p=${encodeURIComponent(p.id)}` : ""; if (typeof navigator !== "undefined" && navigator.share) { navigator.share({ title: p.nome, url }).catch(() => undefined); } else if (typeof navigator !== "undefined" && navigator.clipboard) { navigator.clipboard.writeText(url).catch(() => undefined); } }
   function handleQuickViewWhatsapp(p: Product) {
-    const msg = `Olá! Vi este produto na loja e gostaria de saber mais informações:\n\n* ${p.nome} (Ref. ${p.id})\n* Valor: ${formatMoney(bestUnitPrice(p, payment))}`;
-    const url = `https://wa.me/${STORE_CONTACTS.whatsappDigits}?text=${encodeURIComponent(msg)}`;
+    const msg = [
+      `✨ *Olá! Vi este produto na Tuli Store Beauty e gostaria de tirar dúvidas:*`,
+      "",
+      `🛍️ *${p.nome}* (Ref. ${p.id})`,
+      `💰 *Valor:* ${formatMoney(bestUnitPrice(p, payment))}`,
+      "",
+      `Podem me ajudar? 🥰`
+    ].join("\n");
+    const url = `https://api.whatsapp.com/send?phone=${STORE_CONTACTS.whatsappDigits}&text=${encodeURIComponent(msg)}`;
     if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
   }
   function pushToast(kind: ToastKind, title: string, message?: string) { const id = ++toastIdRef.current; setToasts((c) => [...c, { id, kind, title, message }]); toastTimersRef.current.set(id, setTimeout(() => dismissToast(id), 3400)); }
@@ -400,6 +430,7 @@ export default function Storefront() {
 
   function addToCart(product: Product, quantidade: number = 1) {
     if (product.estoque_qtd <= 0) return;
+    setSubmittedOrderUrl(null);
     const want = Math.max(1, Math.min(quantidade, product.estoque_qtd));
     setCart((c) => {
       const e = c.find((i) => i.product.id === product.id);
@@ -408,13 +439,33 @@ export default function Storefront() {
       if (nextQ === e.qtd) return c;
       return c.map((i) => (i.product.id === product.id ? { ...i, qtd: nextQ } : i));
     });
-    pushToast("success", "Produto adicionado", product.nome);
-    setCartPulse(true); setTimeout(() => setCartPulse(false), 600);
+
+    if (addedModalTimerRef.current) clearTimeout(addedModalTimerRef.current);
+    setAddedModal({ product, quantity: want });
+    setCartPulse(true);
+    setTimeout(() => setCartPulse(false), 1200);
+
+    addedModalTimerRef.current = setTimeout(() => {
+      setAddedModal(null);
+    }, 3800);
   }
 
   function updateCart(pid: string, nq: number) { setCart((c) => c.map((i) => { if (i.product.id !== pid) return i; return { ...i, qtd: Math.max(0, Math.min(nq, i.product.estoque_qtd)) }; }).filter((i) => i.qtd > 0)); }
 
-  function handleCartIconClick() { if (isTouch || window.innerWidth < 1021) setCartOpen(true); else document.querySelector(".cartPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function handleCartIconClick() { if (isTouch || window.innerWidth <= 1080) setCartOpen(true); else document.querySelector(".cartPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+
+  const closeAddedModal = () => {
+    if (addedModalTimerRef.current) {
+      clearTimeout(addedModalTimerRef.current);
+      addedModalTimerRef.current = null;
+    }
+    setAddedModal(null);
+  };
+
+  const handleViewCartFromModal = () => {
+    closeAddedModal();
+    handleCartIconClick();
+  };
 
   async function submitOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setCheckoutMessage("");
@@ -424,15 +475,16 @@ export default function Storefront() {
     setSubmitting(true);
     try {
       const res = await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customer, items: cart.map((i) => ({ productId: i.product.id, qtd: i.qtd })), forma_entrega: delivery, forma_pagamento: payment, observacoes: observations, turnstileToken }) });
-      const data = (await res.json()) as { whatsappUrl?: string; error?: string };
+      const data = (await res.json()) as { whatsappUrl?: string; whatsappAppUrl?: string; error?: string };
       if (!res.ok || !data.whatsappUrl) throw new Error(data.error || "Erro ao finalizar pedido");
-      pushToast("success", "Pedido finalizado", "Abrindo WhatsApp para confirmar");
+      pushToast("success", "Pedido finalizado! 🎉", "Abrindo WhatsApp com seus itens...");
       setCart([]);
       setObservations("");
+      setSubmittedOrderUrl(data.whatsappUrl);
       const url = data.whatsappUrl;
-      // Mantém o botão desabilitado (submitting=true) até o redirecionamento acontecer,
-      // evitando um segundo envio do mesmo pedido durante os 800ms de espera.
-      window.setTimeout(() => { if (url) window.location.href = url; }, 800);
+      // Redirecionamento oficial via api.whatsapp.com preserva 100% dos emojis UTF-8
+      // Mantém o botão desabilitado (submitting=true) até o redirecionamento acontecer
+      window.setTimeout(() => { if (url) window.location.href = url; }, 700);
     } catch (err) {
       setCheckoutMessage(err instanceof Error ? err.message : "Não foi possível finalizar o pedido.");
       if (captchaWidget.current) { window.turnstile?.reset(captchaWidget.current); setTurnstileToken(""); }
@@ -440,24 +492,250 @@ export default function Storefront() {
     }
   }
 
-  const cartContent = (<>
-    <div className="cartHeader"><div><span>Sacola</span><strong>{formatMoney(total)}</strong></div><ShoppingBag size={22} /></div>
-    <div className="cartItems">{cart.length ? cart.map((item) => (<div className="cartRow" key={item.product.id}><img src={item.product.fotos[0] || fallbackImage} alt="" /><div className="cartRowBody"><strong>{item.product.nome}</strong><span>{formatMoney(bestUnitPrice(item.product, payment))}</span><div className="quantityControls"><button type="button" aria-label="Diminuir" onClick={() => updateCart(item.product.id, item.qtd - 1)}><Minus size={16} /></button><span>{item.qtd}</span><button type="button" aria-label="Aumentar" onClick={() => updateCart(item.product.id, item.qtd + 1)} disabled={item.qtd >= item.product.estoque_qtd}><Plus size={16} /></button><button type="button" aria-label="Remover" onClick={() => updateCart(item.product.id, 0)}><Trash2 size={16} /></button></div></div></div>)) : (<p className="emptyState">Sua sacola está vazia.</p>)}</div>
-    <form className="checkoutForm" onSubmit={submitOrder}>
-      <div className="formGroup">
-        <label>Nome completo<input value={customer.nome} onChange={(e) => handleNomeChange(e.target.value)} onBlur={validateCustomer} aria-invalid={Boolean(customerErrors.nome)} className={customerErrors.nome ? "fieldInvalid" : ""} required minLength={5} />{customerErrors.nome ? <span className="fieldError">{customerErrors.nome}</span> : null}</label>
-        <label>E-mail<input type="email" value={customer.email} onChange={(e) => handleEmailChange(e.target.value)} onBlur={validateCustomer} aria-invalid={Boolean(customerErrors.email)} className={customerErrors.email ? "fieldInvalid" : ""} required />{customerErrors.email ? <span className="fieldError">{customerErrors.email}</span> : null}</label>
-        <label>WhatsApp<input value={customer.whatsapp} onChange={(e) => handleWhatsappChange(e.target.value)} onBlur={validateCustomer} aria-invalid={Boolean(customerErrors.whatsapp)} className={customerErrors.whatsapp ? "fieldInvalid" : ""} required minLength={10} inputMode="numeric" placeholder="(00) 0 0000-0000" />{customerErrors.whatsapp ? <span className="fieldError">{customerErrors.whatsapp}</span> : null}</label>
+  const triggerBubble = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 2.2;
+    const clickX = e.clientX > 0 ? e.clientX - rect.left : rect.width / 2;
+    const clickY = e.clientY > 0 ? e.clientY - rect.top : rect.height / 2;
+    const x = clickX - size / 2;
+    const y = clickY - size / 2;
+
+    const ripple = document.createElement("span");
+    ripple.className = "bubbleRipple";
+    ripple.style.width = `${size}px`;
+    ripple.style.height = `${size}px`;
+    ripple.style.left = `${x}px`;
+    ripple.style.top = `${y}px`;
+
+    btn.appendChild(ripple);
+    setTimeout(() => {
+      ripple.remove();
+    }, 600);
+  };
+
+  const renderCart = (isDrawer: boolean) => (
+    <form className="cartCheckoutForm" onSubmit={submitOrder}>
+      {/* HEADER FIXO */}
+      <div className="cartHeader">
+        <div className="cartHeaderInfo">
+          <span>{isDrawer ? "Sua Sacola" : "Sacola"}</span>
+          <strong>{formatMoney(total)}</strong>
+        </div>
+        <div className="cartHeaderActions">
+          <ShoppingBag size={20} />
+          {isDrawer ? (
+            <button
+              type="button"
+              className="cartDrawerClose"
+              onClick={() => setCartOpen(false)}
+              aria-label="Fechar sacola"
+            >
+              <X size={18} />
+            </button>
+          ) : null}
+        </div>
       </div>
-      <div className="optionGroup"><span>Entrega</span>{DELIVERY_IDS.map((o) => (<button key={o} type="button" className={delivery === o ? "selected" : ""} onClick={() => setDelivery(o)}>{o === "entrega_app" ? <Truck size={18} /> : <Store size={18} />}<span>{DELIVERY_LABELS[o]}<small>{o === "retirada_loja" ? storeAddress : o === "retirada_icb" ? "Entrar em contato para agendar" : "Frete a consultar"}</small></span></button>))}</div>
-      <div className="optionGroup compact"><span>Pagamento</span>{PAYMENT_IDS.map((o) => (<button key={o} type="button" className={payment === o ? "selected" : ""} onClick={() => setPayment(o)}>{PAYMENT_LABELS[o]}</button>))}</div>
-      <label className="notesField">Observações<textarea value={observations} onChange={(e) => setObservations(e.target.value)} maxLength={500} /></label>
-      {turnstileSiteKey && turnstileConsentGiven ? <div ref={captchaRef} className="captchaSlot" /> : null}
-      <div className="totals"><span>Subtotal <strong>{formatMoney(subtotal)}</strong></span><span>Total <strong>{formatMoney(total)}</strong></span></div>
-      {checkoutMessage ? <p className="errorText">{checkoutMessage}</p> : null}
-      <button className="checkoutButton" disabled={submitting || !cart.length}><WhatsApp size={18} />{submitting ? "Finalizando" : "Finalizar pelo WhatsApp"}</button>
+
+      {/* ÚNICO CONTAINER DE SCROLL */}
+      <div className="cartScrollBody">
+        <div className="cartItems">
+          {cart.length ? (
+            cart.map((item) => (
+              <div className="cartRow" key={item.product.id}>
+                <img src={item.product.fotos[0] || fallbackImage} alt="" />
+                <div className="cartRowBody">
+                  <strong>{item.product.nome}</strong>
+                  <span>{formatMoney(bestUnitPrice(item.product, payment))}</span>
+                  <div className="quantityControls">
+                    <button
+                      type="button"
+                      aria-label="Diminuir"
+                      onClick={() => updateCart(item.product.id, item.qtd - 1)}
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <span>{item.qtd}</span>
+                    <button
+                      type="button"
+                      aria-label="Aumentar"
+                      onClick={() => updateCart(item.product.id, item.qtd + 1)}
+                      disabled={item.qtd >= item.product.estoque_qtd}
+                    >
+                      <Plus size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Remover"
+                      onClick={() => updateCart(item.product.id, 0)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : submittedOrderUrl ? (
+            <div className="cartSuccessBox">
+              <div className="cartSuccessEmoji">✨🛍️✨</div>
+              <h4>Pedido Gerado com Sucesso!</h4>
+              <p>Os dados do seu pedido estão prontos para envio.</p>
+              <a
+                href={submittedOrderUrl}
+                className="cartSuccessWhatsappLink"
+              >
+                <WhatsApp size={18} />
+                <span>Abrir no WhatsApp</span>
+              </a>
+              <small>Se o WhatsApp não abrir automaticamente em instantes, toque no botão acima.</small>
+            </div>
+          ) : (
+            <p className="emptyState">Sua sacola está vazia.</p>
+          )}
+        </div>
+
+        <div className="cartCheckoutFields">
+          <div className="formGroup">
+            <label>
+              Nome completo
+              <input
+                value={customer.nome}
+                onChange={(e) => handleNomeChange(e.target.value)}
+                onBlur={validateCustomer}
+                aria-invalid={Boolean(customerErrors.nome)}
+                className={customerErrors.nome ? "fieldInvalid" : ""}
+                required
+                minLength={5}
+                autoComplete="name"
+              />
+              {customerErrors.nome ? <span className="fieldError">{customerErrors.nome}</span> : null}
+            </label>
+            <label>
+              E-mail
+              <input
+                type="email"
+                value={customer.email}
+                onChange={(e) => handleEmailChange(e.target.value)}
+                onBlur={validateCustomer}
+                aria-invalid={Boolean(customerErrors.email)}
+                className={customerErrors.email ? "fieldInvalid" : ""}
+                required
+                autoComplete="email"
+              />
+              {customerErrors.email ? <span className="fieldError">{customerErrors.email}</span> : null}
+            </label>
+            <label>
+              WhatsApp
+              <input
+                value={customer.whatsapp}
+                onChange={(e) => handleWhatsappChange(e.target.value)}
+                onBlur={validateCustomer}
+                aria-invalid={Boolean(customerErrors.whatsapp)}
+                className={customerErrors.whatsapp ? "fieldInvalid" : ""}
+                required
+                minLength={10}
+                inputMode="numeric"
+                autoComplete="tel"
+                placeholder="(00) 0 0000-0000"
+              />
+              {customerErrors.whatsapp ? <span className="fieldError">{customerErrors.whatsapp}</span> : null}
+            </label>
+          </div>
+
+          <div className="optionGroup">
+            <span>Entrega</span>
+            {DELIVERY_IDS.map((o) => (
+              <button
+                key={o}
+                type="button"
+                className={`optionButton ${delivery === o ? "selected" : ""}`}
+                onClick={(e) => {
+                  triggerBubble(e);
+                  setDelivery(o);
+                }}
+              >
+                <span className="optionIcon">
+                  {o === "entrega_app" ? <Truck size={18} /> : <Store size={18} />}
+                </span>
+                <span className="optionText">
+                  {DELIVERY_LABELS[o]}
+                  <small>
+                    {o === "retirada_loja"
+                      ? storeAddress
+                      : o === "retirada_icb"
+                      ? "Entrar em contato para agendar"
+                      : "Frete a consultar"}
+                  </small>
+                </span>
+                <span className="optionRadio" aria-hidden="true">
+                  <span className="optionRadioInner" />
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="optionGroup compact">
+            <span>Pagamento</span>
+            {PAYMENT_IDS.map((o) => (
+              <button
+                key={o}
+                type="button"
+                className={`optionButton ${payment === o ? "selected" : ""}`}
+                onClick={(e) => {
+                  triggerBubble(e);
+                  setPayment(o);
+                }}
+              >
+                <span>{PAYMENT_LABELS[o]}</span>
+              </button>
+            ))}
+          </div>
+
+          <label className="notesField">
+            Observações
+            <textarea
+              value={observations}
+              onChange={(e) => setObservations(e.target.value)}
+              maxLength={500}
+              placeholder="Alguma observação para seu pedido?"
+            />
+          </label>
+
+          {turnstileSiteKey && turnstileConsentGiven ? <div ref={captchaRef} className="captchaSlot" /> : null}
+        </div>
+      </div>
+
+      {/* FOOTER FIXO */}
+      <div className="cartFixedFooter">
+        {submittedOrderUrl ? (
+          <a
+            href={submittedOrderUrl}
+            className="checkoutButton"
+            style={{ textDecoration: "none", textAlign: "center" }}
+          >
+            <WhatsApp size={18} />
+            Abrir Pedido no WhatsApp
+          </a>
+        ) : (
+          <>
+            <div className="totals">
+              <span>Subtotal <strong>{formatMoney(subtotal)}</strong></span>
+              <span>Total <strong>{formatMoney(total)}</strong></span>
+            </div>
+            {checkoutMessage ? <p className="errorText">{checkoutMessage}</p> : null}
+            <button
+              type="submit"
+              className="checkoutButton"
+              disabled={submitting || !cart.length}
+            >
+              <WhatsApp size={18} />
+              {submitting ? "Finalizando..." : "Finalizar pelo WhatsApp"}
+            </button>
+          </>
+        )}
+      </div>
     </form>
-  </>);
+  );
 
   return (
     <main className="storeShell" ref={revealRef}>
@@ -471,8 +749,11 @@ export default function Storefront() {
             <button
               type="button"
               ref={categoryTriggerRef}
-              className="headerFilter categoryDropdownTrigger"
-              onClick={() => setCategoryMenuOpen((v) => !v)}
+              className={`headerFilter categoryDropdownTrigger${category !== "Todos" ? " selected" : ""}`}
+              onClick={(e) => {
+                triggerBubble(e);
+                setCategoryMenuOpen((v) => !v);
+              }}
               aria-haspopup="listbox"
               aria-expanded={categoryMenuOpen}
               aria-label="Filtrar por categoria"
@@ -485,8 +766,8 @@ export default function Storefront() {
         </div>
         <nav className="headerActions" aria-label="Ações">
           <a href="https://www.instagram.com/tulistorebeauty" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={18} /></a>
-          <a href={`https://wa.me/${STORE_CONTACTS.whatsappDigits}`} target="_blank" rel="noreferrer" aria-label="WhatsApp"><WhatsApp size={18} /></a>
-          <button className="headerCartBtn" type="button" onClick={handleCartIconClick} aria-label={`Sacola com ${cartQuantity} itens`}><ShoppingBag size={20} className={cartPulse ? "cartPulseAnim" : ""} />{cartQuantity > 0 ? <span className="cartCount">{cartQuantity}</span> : null}</button>
+          <a href={`https://api.whatsapp.com/send?phone=${STORE_CONTACTS.whatsappDigits}`} target="_blank" rel="noreferrer" aria-label="WhatsApp"><WhatsApp size={18} /></a>
+          <button className={`headerCartBtn${cartQuantity > 0 ? " hasItems" : ""}${addedModal || cartPulse ? " cartHighlighted" : ""}`} type="button" onClick={handleCartIconClick} aria-label={`Sacola com ${cartQuantity} itens`}><ShoppingBag size={20} className={cartPulse ? "cartPulseAnim" : ""} />{cartQuantity > 0 ? <span className="cartCount">{cartQuantity}</span> : null}</button>
         </nav>
       </header>
 
@@ -504,9 +785,13 @@ export default function Storefront() {
             role="option"
             aria-selected={category === "Todos"}
             className={`categoryDropdownOption${category === "Todos" ? " active" : ""}`}
-            onClick={() => { setCategory("Todos"); setCategoryMenuOpen(false); }}
+            onClick={(e) => {
+              triggerBubble(e);
+              setCategory("Todos");
+              setTimeout(() => setCategoryMenuOpen(false), 160);
+            }}
           >
-            Todas as categorias
+            <span>Todas as categorias</span>
             {category === "Todos" ? <Check size={16} /> : null}
           </button>
           {CATEGORIES.map((item) => (
@@ -516,9 +801,13 @@ export default function Storefront() {
               role="option"
               aria-selected={category === item}
               className={`categoryDropdownOption${category === item ? " active" : ""}`}
-              onClick={() => { setCategory(item); setCategoryMenuOpen(false); }}
+              onClick={(e) => {
+                triggerBubble(e);
+                setCategory(item);
+                setTimeout(() => setCategoryMenuOpen(false), 160);
+              }}
             >
-              {item}
+              <span>{item}</span>
               {category === item ? <Check size={16} /> : null}
             </button>
           ))}
@@ -556,18 +845,36 @@ export default function Storefront() {
                   <img src={hp} alt={product.nome} loading="lazy" decoding="async" width={300} height={300} />
                   {discP > 0 ? <span className="productBadge">-{discP}%</span> : null}
                   {soldOut ? <span className="soldOut">ESGOTADO</span> : null}
+                  {sq > 0 ? <span className="cartQtyBadge"><ShoppingBag size={12} /> {sq}</span> : null}
                   {isK && product.fotos.length > 1 ? (<button type="button" className="kitTourBadge" onClick={(e) => { e.stopPropagation(); openKitTour(product); }} aria-label="Ver tour do kit"><Gift size={14} />Ver kit</button>) : null}
                 </div>
-                <div className="productBody"><div><span className="productCategory">{product.categoria}</span><h2>{product.nome}</h2></div><div className="priceLine"><strong>{formatMoney(dp)}</strong>{product.preco_desconto ? <small>{formatMoney(product.preco_normal)}</small> : null}</div>{product.preco_pix ? <span className="pixPrice">Pix: {formatMoney(product.preco_pix)}</span> : null}<button className="primaryButton" disabled={!canAdd} onClick={(e) => { e.stopPropagation(); addToCart(product); }}><ShoppingBag size={16} />{soldOut ? "Esgotado" : "Adicionar"}</button></div>
+                <div className="productBody"><div><span className="productCategory">{product.categoria}</span><h2>{product.nome}</h2></div><div className="priceLine"><strong>{formatMoney(dp)}</strong>{product.preco_desconto ? <small>{formatMoney(product.preco_normal)}</small> : null}</div>{product.preco_pix ? <span className="pixPrice">Pix: {formatMoney(product.preco_pix)}</span> : null}<button className={`primaryButton${sq > 0 ? " hasInCart" : ""}`} disabled={!canAdd} onClick={(e) => { e.stopPropagation(); addToCart(product); }}><ShoppingBag size={16} />{soldOut ? "Esgotado" : sq > 0 ? `Adicionar (${sq})` : "Adicionar"}</button></div>
               </article>);
             })}
           </div>
         </div>
-        <aside className="cartPanel" aria-label="Sacola">{cartContent}</aside>
+        <aside className="cartPanel" aria-label="Sacola">{renderCart(false)}</aside>
       </section>
 
       <div className={`cartOverlay${cartOpen ? " visible" : ""}`} onClick={() => setCartOpen(false)} />
-      <aside className={`cartDrawer${cartOpen ? " open" : ""}`} aria-label="Sacola móvel" style={cartDragOffset ? { transform: `translateY(${cartDragOffset}px)`, transition: "none" } : undefined}><button type="button" className="cartDrawerHandle" onClick={() => setCartOpen(false)} onTouchStart={handleCartDragStart} onTouchMove={handleCartDragMove} onTouchEnd={handleCartDragEnd} aria-label="Fechar sacola (toque ou arraste para baixo)"><span className="drawerHandleBar" /></button>{cartContent}</aside>
+      <aside
+        className={`cartDrawer${cartOpen ? " open" : ""}`}
+        aria-label="Sacola móvel"
+        style={cartDragOffset ? { transform: `translateY(${cartDragOffset}px)`, transition: "none" } : undefined}
+      >
+        <button
+          type="button"
+          className="cartDrawerHandle"
+          onClick={() => setCartOpen(false)}
+          onTouchStart={handleCartDragStart}
+          onTouchMove={handleCartDragMove}
+          onTouchEnd={handleCartDragEnd}
+          aria-label="Fechar sacola (toque ou arraste para baixo)"
+        >
+          <span className="drawerHandleBar" />
+        </button>
+        {renderCart(true)}
+      </aside>
 
       <footer className="storeFooter"><div className="storeFooterContent"><p>{new Date().getFullYear()} Tuli Store Beauty. Cosméticos e acessórios com carinho.</p><nav className="storeFooterLegalNav"><Link href="/politica-de-privacidade">Política de Privacidade</Link><Link href="/politica-de-cookies">Política de Cookies</Link><Link href="/termos-de-uso">Termos de Uso</Link><CookieManageLink /></nav><p><a className="secretAdminLink" href="/admin" aria-label="Acesso administrativo" tabIndex={0}>&middot;</a></p></div></footer>
 
@@ -626,6 +933,64 @@ export default function Storefront() {
           </div>
         </div>);
       })() : null}
+
+      {addedModal ? (
+        <div
+          className="addedModalOverlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAddedModal();
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="addedModalTitle"
+        >
+          <div className="addedModalCard minimal">
+            <div className="addedModalTop">
+              <span className="addedModalStatus" id="addedModalTitle">
+                <Check size={14} /> Item na sacola
+              </span>
+              <button
+                type="button"
+                className="addedModalClose"
+                onClick={closeAddedModal}
+                aria-label="Fechar notificação"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="addedModalProduct minimal">
+              <img
+                src={addedModal.product.fotos[0] || fallbackImage}
+                alt={addedModal.product.nome}
+                className="addedModalImage"
+              />
+              <div className="addedModalDetails">
+                <strong>{addedModal.product.nome}</strong>
+                <span className="addedModalPrice">
+                  {formatMoney(bestUnitPrice(addedModal.product, payment))}
+                </span>
+              </div>
+            </div>
+
+            <div className="addedModalGuideHint">
+              <ShoppingBag size={14} className="guideHintBag" />
+              <span>Sua sacola fica no <strong>topo da loja, à direita</strong></span>
+              <span className="guideHintArrow" aria-hidden="true">↗</span>
+            </div>
+
+            <button
+              type="button"
+              className="addedModalPrimaryBtn minimal"
+              onClick={handleViewCartFromModal}
+            >
+              <ShoppingBag size={16} />
+              <span>Ver Sacola ({cartQuantity})</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="toastContainer" aria-live="polite" aria-atomic="false">{toasts.map((t) => (<div key={t.id} className={`toast toast-${t.kind}`}><span className="toastIcon">{t.kind === "success" ? <CheckCircle2 size={20} /> : t.kind === "error" ? <X size={20} /> : <Heart size={18} />}</span><div className="toastContent"><strong>{t.title}</strong>{t.message ? <span>{t.message}</span> : null}</div><button type="button" className="toastClose" onClick={() => dismissToast(t.id)} aria-label="Fechar notificação"><X size={16} /></button></div>))}</div>
     </main>

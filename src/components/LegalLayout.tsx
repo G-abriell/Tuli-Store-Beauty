@@ -32,7 +32,7 @@ export default function LegalLayout({ title, subtitle, lastUpdated, children }: 
           <p>
             Em caso de dúvidas sobre esta política, entre em contato pelo e-mail{" "}
             <a href={`mailto:${LEGAL_DATA.CONTROLADOR_EMAIL}`}>{LEGAL_DATA.CONTROLADOR_EMAIL}</a>{" "}
-            ou WhatsApp <a href={`https://wa.me/5581983143861`} target="_blank" rel="noreferrer">{LEGAL_DATA.CONTROLADOR_WHATSAPP}</a>.
+            ou WhatsApp <a href={`https://api.whatsapp.com/send?phone=5581983143861`} target="_blank" rel="noreferrer">{LEGAL_DATA.CONTROLADOR_WHATSAPP}</a>.
           </p>
           <nav className="legalFooterNav">
             <Link href="/">← Voltar à loja</Link>
