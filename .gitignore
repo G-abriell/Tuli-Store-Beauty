@@ -29,6 +29,8 @@ patches/
 *.bundle
 *.zip
 worklog*.md
+AGENTS.md
+CLAUDE.md
 
 # Logs de npm/yarn/pnpm
 npm-debug.log*
